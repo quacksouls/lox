@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import static com.craftinginterpreters.lox.TokenType.*;
+import static com.craftinginterpreters.lox.Lox.*;
 
 /**
  * Scan the source file and output a bunch of tokens.  A lexeme consists of a
@@ -32,7 +33,7 @@ import static com.craftinginterpreters.lox.TokenType.*;
  *     // A line comment.
  *     This class documentation is a block comment.
  */
-class Scanner {
+public class Scanner {
     /**
      * A string representing the source code.
      */
@@ -53,6 +54,29 @@ class Scanner {
      * The current line in the source code.
      */
     private int line = 1;
+    /**
+     * Reserved words, i.e. keywords, of the Lox language.
+     */
+    private static final Map<String, TokenType> keyword;
+    static {
+        keyword = new HashMap<>();
+        keyword.put("and",    AND);
+        keyword.put("class",  CLASS);
+        keyword.put("else",   ELSE);
+        keyword.put("false",  FALSE);
+        keyword.put("for",    FOR);
+        keyword.put("fun",    FUN);
+        keyword.put("if",     IF);
+        keyword.put("nil",    NIL);
+        keyword.put("or",     OR);
+        keyword.put("print",  PRINT);
+        keyword.put("return", RETURN);
+        keyword.put("super",  SUPER);
+        keyword.put("this",   THIS);
+        keyword.put("true",   TRUE);
+        keyword.put("var",    VAR);
+        keyword.put("while",  WHILE);
+    }
 
     /**
      * Constructor to create a scanner object.
@@ -112,10 +136,184 @@ class Scanner {
         case '*':
             addToken(STAR);
             break;
+        case '!':
+            addToken(match('=') ? BANG_EQUAL : BANG);
+            break;
+        case '=':
+            addToken(match('=') ? EQUAL_EQUAL : EQUAL);
+            break;
+        case '<':
+            addToken(match('=') ? LESS_EQUAL : LESS);
+            break;
+        case '>':
+            addToken(match('=') ? GREATER_EQUAL : GREATER);
+            break;
+        case '/':
+            if (match('/')) {
+                // Ignore the rest of the line because a line comment takes
+                // one line.
+                while ((peek() != '\n') && !isAtEnd()) {
+                    advance();
+                }
+            } else {
+                addToken(SLASH);
+            }
+            break;
+        case ' ':
+        case '\r':
+        case '\t':
+            // Ignore whitespace.
+            break;
+        case '\n':
+            line++;
+            break;
+        case '"':
+            string();
+            break;
         default:
-            Lox.error(line, "Unexpected character.");
+            if (isDigit(c)) {
+                number();
+            } else if (isAlpha(c)) {
+                identifier();
+            } else {
+                Lox.error(line, "Unexpected character.");
+            }
             break;
         }
+    }
+
+    /**
+     * Scan an identifier.  This can be an identifier, i.e. a name chosen by
+     * the programmer, or a reserved word (i.e. a keyword).
+     */
+    private void identifier() {
+        while (isAlphaNumeric(peek())) {
+            advance();
+        }
+        String text = source.substring(start, current);
+        TokenType type = keyword.get(text);
+        if (type == null) {
+            type = IDENTIFIER;
+        }
+        addToken(type);
+    }
+
+    /**
+     * Scan a number literal.
+     */
+    private void number() {
+        while (isDigit(peek())) {
+            advance();
+        }
+        // Look for a fractional part.
+        if ((peek() == '.') && isDigit(peekNext())) {
+            // Consume the decimal point ".".
+            advance();
+            while (isDigit(peek())) {
+                advance();
+            }
+        }
+        addToken(NUMBER,
+                 Double.parseDouble(source.substring(start, current)));
+    }
+
+    /**
+     * Peek at the next character without advancing the character pointer.
+     * This is essentially looking two characters ahead.
+     */
+    private char peekNext() {
+        if (current + 1 >= source.length()) {
+            return '\0';
+        }
+        return source.charAt(current + 1);
+    }
+
+    /**
+     * Whether a character represents an alphabetic character.  For our
+     * purposes, we count the underscore character "_" as an alphabetic
+     * character.
+     *
+     * @param c A character.
+     * @return true is the given character represents an alphabetic character;
+     *     false otherwise.
+     */
+    private boolean isAlpha(char c) {
+        return (c >= 'a' && c <= 'z')
+            || (c >= 'A' && c <= 'Z')
+            || (c == '_');
+    }
+
+    /**
+     * Whether a character represents an alphabetic character or a numeric
+     * digit.
+     *
+     * @param c A character.
+     * @return true if the given character is an alpha-numeric character;
+     *     false otherwise.
+     */
+    private boolean isAlphaNumeric(char c) {
+        return isAlpha(c) || isDigit(c);
+    }
+
+    /**
+     * Scan a string literal.
+     */
+    private void string() {
+        while ((peek() != '"') && !isAtEnd()) {
+            if (peek() == '\n') {
+                line++;
+            }
+            advance();
+        }
+        if (isAtEnd()) {
+            Lox.error(line, "Unterminated string.");
+            return;
+        }
+        // The closing ".
+        advance();
+        // The the surrounding quotes.
+        String value = source.substring(start + 1, current - 1);
+        addToken(STRING, value);
+    }
+
+    /**
+     * Whether the current character being scanned is what we expect.
+     *
+     * @param expected The character we want.
+     * @return true if the current character being scanned is the expected
+     *     character; false otherwise.
+     */
+    private boolean match(char expected) {
+        if (isAtEnd()) {
+            return false;
+        }
+        if (source.charAt(current) != expected) {
+            return false;
+        }
+        current++;
+        return true;
+    }
+
+    /**
+     * Peek at the current character without advancing the character index.
+     * This is essentially looking ahead at one character.
+     */
+    private char peek() {
+        if (isAtEnd()) {
+            return '\0';
+        }
+        return source.charAt(current);
+    }
+
+    /**
+     * Whether a character represents a decimal digit.
+     *
+     * @param c A character to process.
+     * @return true if the given character represents a decimal digit;
+     *     false otherwise.
+     */
+    private boolean isDigit(char c) {
+        return (c >= '0') && (c <= '9');
     }
 
     /**
